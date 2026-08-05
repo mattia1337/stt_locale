@@ -1,0 +1,13 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+huggingface_hub>=0.23
+av>=12
+
+# Backend STT: pip installa automaticamente quello giusto per la piattaforma.
+# macOS Apple Silicon -> mlx-whisper (GPU Metal, framework MLX di Apple)
+mlx-whisper>=0.4.0; sys_platform == "darwin" and platform_machine == "arm64"
+# Windows / Linux / Mac Intel -> faster-whisper (CTranslate2: CPU int8; GPU NVIDIA CUDA se presente)
+faster-whisper>=1.1; sys_platform != "darwin" or platform_machine != "arm64"
+# Solo Apple Silicon -> NVIDIA Parakeet TDT 0.6B v3 (multilingue, IT) in formato MLX
+parakeet-mlx; sys_platform == "darwin" and platform_machine == "arm64"

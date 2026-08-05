@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STT Italiano — Whisper locale</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #12161f; --panel2: #171c28; --border: #232a3a;
+    --text: #e7eaf2; --muted: #8b93a7; --accent: #6c8cff; --accent2: #9d6cff;
+    --ok: #3ecf8e; --warn: #f5b544; --err: #ef5b6b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 600px at 80% -10%, #1a2140 0%, var(--bg) 55%);
+    color: var(--text); min-height: 100vh; padding: 32px 16px 64px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 32px; }
+  header h1 {
+    font-size: 2rem; letter-spacing: -.5px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header p { color: var(--muted); margin-top: 6px; font-size: .95rem; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin: 28px 0 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+
+  /* ---- Modelli ---- */
+  .models { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .model {
+    background: var(--panel); border: 1.5px solid var(--border); border-radius: 14px;
+    padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative;
+  }
+  .model:hover { transform: translateY(-2px); }
+  .model.selected { border-color: var(--accent); box-shadow: 0 0 0 3px #6c8cff22; }
+  .model.locked { opacity: .75; cursor: default; }
+  .model h3 { font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge { font-size: .65rem; padding: 2px 8px; border-radius: 99px; background: #6c8cff22; color: var(--accent); border: 1px solid #6c8cff44; }
+  .badge.ok { background: #3ecf8e1c; color: var(--ok); border-color: #3ecf8e44; }
+  .badge.sel { background: #9d6cff22; color: var(--accent2); border-color: #9d6cff44; font-weight: 700; }
+  .stars { color: var(--warn); font-size: .8rem; letter-spacing: 2px; margin: 6px 0; }
+  .meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  .meta span { font-size: .68rem; color: var(--muted); background: var(--panel2); padding: 2px 8px; border-radius: 6px; }
+  .model p { font-size: .8rem; color: var(--muted); line-height: 1.35; }
+  .dl-btn {
+    margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: none;
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff;
+    font-weight: 600; font-size: .8rem; cursor: pointer;
+  }
+  .dl-btn:disabled { opacity: .6; cursor: wait; }
+  .dl-err { color: var(--err); font-size: .72rem; margin-top: 6px; }
+
+  /* ---- Upload ---- */
+  .row { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
+  .dropzone {
+    flex: 1; min-width: 260px; border: 2px dashed var(--border); border-radius: 14px;
+    padding: 36px 16px; text-align: center; color: var(--muted); cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .dropzone.over, .dropzone:hover { border-color: var(--accent); background: #6c8cff0d; }
+  .dropzone .big { font-size: 1.6rem; }
+  .dropzone small { display: block; margin-top: 6px; font-size: .72rem; }
+  .filechip {
+    display: none; align-items: center; gap: 10px; margin-top: 12px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: .85rem;
+  }
+  .filechip.show { display: flex; }
+  .filechip .x { margin-left: auto; cursor: pointer; color: var(--muted); }
+  select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; font-size: .9rem;
+  }
+  .go {
+    width: 100%; margin-top: 14px; padding: 14px; border: none; border-radius: 12px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff;
+    font-size: 1rem; font-weight: 700; cursor: pointer; transition: opacity .15s;
+  }
+  .go:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ---- Progress ---- */
+  #progress { display: none; margin-top: 16px; align-items: center; gap: 12px; }
+  #progress.show { display: flex; }
+  .spinner {
+    width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- Risultato ---- */
+  #result { display: none; margin-top: 28px; }
+  #result.show { display: block; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .rhead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 14px; border-radius: 8px; font-size: .8rem; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.tab.active { border-color: var(--accent); background: #6c8cff22; }
+  .btn.tab.taberr { border-color: #ef5b6b66; color: var(--err); }
+  .btn.accent { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .segs { max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .seg { display: flex; gap: 12px; padding: 8px 10px; border-radius: 8px; font-size: .88rem; }
+  .seg:nth-child(odd) { background: var(--panel2); }
+  .seg .t { color: var(--accent); font-variant-numeric: tabular-nums; font-size: .75rem; padding-top: 2px; white-space: nowrap; }
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--err); color: #fff; padding: 12px 20px; border-radius: 10px;
+    font-size: .85rem; transition: transform .25s; z-index: 10; max-width: 90vw;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎙️ STT Italiano</h1>
+    <p id="subtitle">100% locale, nessun dato esce dal computer</p>
+  </header>
+
+  <h2>1 · Scegli uno o più modelli (eseguiti in sequenza)</h2>
+  <div class="models" id="models"></div>
+
+  <h2>2 · Carica audio o video</h2>
+  <div class="card">
+    <div class="row">
+      <div class="dropzone" id="drop">
+        <div class="big">📂</div>
+        Trascina qui il file oppure clicca per sfogliare
+        <small>ogg · wav · mp3 · mp4 · m4a · webm · flac · aac · opus · mov · mkv</small>
+        <input type="file" id="fileInput" hidden
+               accept=".ogg,.wav,.mp3,.mp4,.m4a,.webm,.flac,.aac,.opus,.mov,.mkv">
+      </div>
+      <div>
+        <label style="font-size:.75rem;color:var(--muted)">Lingua</label><br>
+        <select id="lang" style="margin-top:6px">
+          <option value="it" selected>🇮🇹 Italiano</option>
+          <option value="auto">🌐 Rileva automaticamente</option>
+          <option value="en">🇬🇧 Inglese</option>
+          <option value="es">🇪🇸 Spagnolo</option>
+          <option value="fr">🇫🇷 Francese</option>
+          <option value="de">🇩🇪 Tedesco</option>
+        </select>
+      </div>
+    </div>
+    <div class="filechip" id="filechip">
+      <span>🎧</span><span id="fname"></span><span class="x" id="fclear">✕</span>
+    </div>
+    <button class="go" id="go" disabled>Trascrivi →</button>
+    <div id="progress"><div class="spinner"></div><span id="ptext">In coda…</span></div>
+  </div>
+
+  <div id="result">
+    <h2>3 · Risultato</h2>
+    <div class="card">
+      <div class="tabs" id="tabs"></div>
+      <div class="rhead">
+        <span class="badge ok" id="rlang"></span>
+        <span class="badge" id="rtime"></span>
+        <div class="actions">
+          <button class="btn" id="copy">📋 Copia</button>
+          <button class="btn" id="dltxt">⬇ .txt</button>
+          <button class="btn" id="dlsrt">⬇ .srt</button>
+          <button class="btn accent" id="dlall">⬇ Tutti i modelli (.txt)</button>
+        </div>
+      </div>
+      <div class="segs" id="segs"></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+let models = [], selected = [], file = null, jobId = null, pollTimer = null;
+let lastJob = null, curTab = null;
+
+const $ = id => document.getElementById(id);
+const fmtMB = b => b > 1e9 ? (b/1e9).toFixed(1)+" GB" : (b/1e6).toFixed(1)+" MB";
+const ts = s => { const m=Math.floor(s/60), ss=(s%60).toFixed(1).padStart(4,"0"); return `${m}:${ss}`; };
+const mlabel = id => (models.find(m => m.id === id) || {}).label || id;
+
+function toast(msg, ms=5000) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), ms);
+}
+
+/* ---------- Modelli ---------- */
+const BACKEND_LABELS = {
+  "mlx": "Whisper su GPU Apple Silicon (MLX) · 100% locale, nessun dato esce dal Mac",
+  "faster-whisper": "Whisper via faster-whisper (CPU / GPU CUDA) · 100% locale, nessun dato esce dal PC",
+};
+
+async function loadModels() {
+  const r = await fetch("/api/models");
+  const data = await r.json();
+  models = data.models;
+  if (data.backend && BACKEND_LABELS[data.backend])
+    $("subtitle").textContent = BACKEND_LABELS[data.backend];
+  renderModels();
+  if (models.some(m => m.downloading)) setTimeout(loadModels, 2000);
+}
+
+function renderModels() {
+  const el = $("models"); el.innerHTML = "";
+  for (const m of models) {
+    const ord = selected.indexOf(m.id) + 1;  // 0 = non selezionato
+    const d = document.createElement("div");
+    d.className = "model" + (ord ? " selected" : "") + (m.downloaded ? "" : " locked");
+    const stars = "★".repeat(m.quality) + "☆".repeat(5 - m.quality);
+    d.innerHTML = `
+      <h3>${m.label} ${ord ? `<span class="badge sel">${ord}°</span>` : ""}
+        ${m.default ? '<span class="badge">default</span>' : ""}
+        ${m.downloaded ? '<span class="badge ok">✓ scaricato</span>' : ""}</h3>
+      <div class="stars">${stars}</div>
+      <div class="meta"><span>⚙ ${m.params}</span><span>🧠 ${m.ram}</span><span>⚡ ${m.speed}</span></div>
+      <p>${m.desc}</p>
+      ${m.downloaded ? "" :
+        m.downloading ? `<button class="dl-btn" disabled>⏳ Download in corso…</button>` :
+        `<button class="dl-btn">⬇ Scarica modello</button>`}
+      ${m.download_error ? `<div class="dl-err">Errore: ${m.download_error}</div>` : ""}`;
+    d.onclick = async e => {
+      if (!m.downloaded) {
+        if (e.target.classList.contains("dl-btn")) {
+          e.target.disabled = true; e.target.textContent = "⏳ Avvio download…";
+          await fetch(`/api/models/${m.id}/download`, { method: "POST" });
+          setTimeout(loadModels, 500);
+        }
+        return;
+      }
+      // Multi-selezione: l'ordine di click è l'ordine di esecuzione in cascata.
+      const i = selected.indexOf(m.id);
+      if (i >= 0) selected.splice(i, 1); else selected.push(m.id);
+      renderModels(); refreshGo();
+    };
+    el.appendChild(d);
+  }
+}
+
+/* ---------- Upload ---------- */
+const drop = $("drop");
+drop.onclick = () => $("fileInput").click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); setFile(e.dataTransfer.files[0]); };
+$("fileInput").onchange = e => setFile(e.target.files[0]);
+$("fclear").onclick = () => setFile(null);
+
+function setFile(f) {
+  file = f || null;
+  $("filechip").classList.toggle("show", !!file);
+  if (file) $("fname").textContent = `${file.name} · ${fmtMB(file.size)}`;
+  refreshGo();
+}
+function refreshGo() {
+  const n = selected.length;
+  $("go").disabled = !(file && n);
+  $("go").textContent = n > 1 ? `Trascrivi con ${n} modelli in sequenza →` : "Trascrivi →";
+}
+
+/* ---------- Trascrizione ---------- */
+$("go").onclick = async () => {
+  const fd = new FormData();
+  fd.append("file", file);
+  for (const mid of selected) fd.append("models", mid);
+  fd.append("language", $("lang").value);
+  $("go").disabled = true;
+  $("result").classList.remove("show");
+  $("progress").classList.add("show");
+  $("ptext").textContent = "Upload in corso…";
+  const r = await fetch("/api/transcribe", { method: "POST", body: fd });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    toast(e.detail || "Errore durante l'upload");
+    $("progress").classList.remove("show"); refreshGo(); return;
+  }
+  jobId = (await r.json()).job_id;
+  poll();
+};
+
+function poll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    const r = await fetch(`/api/jobs/${jobId}`);
+    const j = await r.json();
+    if (j.status === "done") {
+      $("progress").classList.remove("show");
+      showResult(j);
+      refreshGo();
+    } else if (j.status === "error") {
+      $("progress").classList.remove("show");
+      toast("Errore: " + (j.error || "sconosciuto"), 8000);
+      refreshGo();
+    } else {
+      let txt = j.status === "queued" ? "In coda" : "Trascrizione in corso";
+      if (j.current_model)
+        txt += ` · modello ${j.current_index}/${j.models.length} (${mlabel(j.current_model)})`;
+      $("ptext").textContent = txt + ` · ${j.elapsed}s`;
+      poll();
+    }
+  }, 800);
+}
+
+/* ---------- Risultato: un tab per modello + export combinato ---------- */
+function showResult(j) {
+  lastJob = j;
+  const tabs = $("tabs"); tabs.innerHTML = "";
+  for (const mid of j.models) {
+    const res = j.results[mid] || {};
+    const b = document.createElement("button");
+    b.className = "btn tab" + (res.error ? " taberr" : "");
+    b.dataset.mid = mid;
+    b.textContent = mlabel(mid) + (res.error ? " ⚠" : "");
+    b.onclick = () => { curTab = mid; renderResult(); };
+    tabs.appendChild(b);
+  }
+  // Tab iniziale: il primo modello andato a buon fine.
+  curTab = j.models.find(mid => !(j.results[mid] || {}).error) || j.models[0];
+  $("dlall").style.display = j.models.length > 1 ? "" : "none";
+  $("result").classList.add("show");
+  renderResult();
+  $("result").scrollIntoView({ behavior: "smooth" });
+}
+
+function renderResult() {
+  const j = lastJob, res = j.results[curTab] || {};
+  for (const b of $("tabs").children) b.classList.toggle("active", b.dataset.mid === curTab);
+  const el = $("segs"); el.innerHTML = "";
+  const bad = !!res.error;
+  if (bad) {
+    const d = document.createElement("div");
+    d.className = "seg";
+    d.textContent = "⚠ Errore: " + res.error;
+    el.appendChild(d);
+  } else {
+    for (const s of res.segments || []) {
+      const d = document.createElement("div");
+      d.className = "seg";
+      d.innerHTML = `<span class="t">${ts(s.start)} → ${ts(s.end)}</span><span></span>`;
+      d.lastElementChild.textContent = s.text;
+      el.appendChild(d);
+    }
+  }
+  $("rlang").textContent = "🌐 " + (res.language || "?");
+  $("rtime").textContent = `⏱ ${res.elapsed ?? j.elapsed}s`;
+  $("copy").disabled = bad;
+  $("dltxt").disabled = bad;
+  $("dlsrt").disabled = bad;
+  $("copy").onclick = () => { navigator.clipboard.writeText(res.text || ""); toast("✓ Copiato negli appunti", 2000); };
+  $("dltxt").onclick = () => location.href = `/api/jobs/${jobId}/export?fmt=txt&model=${encodeURIComponent(curTab)}`;
+  $("dlsrt").onclick = () => location.href = `/api/jobs/${jobId}/export?fmt=srt&model=${encodeURIComponent(curTab)}`;
+  $("dlall").onclick = () => location.href = `/api/jobs/${jobId}/export?fmt=combined`;
+}
+
+loadModels().then(() => {
+  const def = models.find(m => m.default && m.downloaded) || models.find(m => m.downloaded);
+  if (def) { selected = [def.id]; renderModels(); refreshGo(); }
+});
+</script>
+</body>
+</html>

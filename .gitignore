@@ -1,0 +1,17 @@
+.DS_Store
+
+# Ambiente virtuale (ricreato da run.sh / run.bat)
+.venv/
+venv/
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# Audio caricati a runtime: mai committare
+uploads/
+
+# Configurazione locale ed editor
+.env
+.vscode/
+.idea/
