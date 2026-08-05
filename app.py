@@ -3,8 +3,8 @@
 Backend automatico (vedi stt_engine.py): mlx-whisper su Mac Apple Silicon,
 faster-whisper su Windows / Linux / Mac Intel.
 
-Avvio:  uvicorn app:app --host 127.0.0.1 --port 8000
-Poi apri http://localhost:8000
+Avvio:  uvicorn app:app --host 127.0.0.1 --port 9753
+Poi apri http://localhost:9753
 """
 
 import os

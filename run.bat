@@ -21,7 +21,7 @@ if not exist .venv (
 )
 if not exist .venv\Scripts\python.exe (
   echo ERRORE: Python non trovato. Installa Python 3.10+ da https://www.python.org/downloads/
-  echo (durante l'installazione spunta "Add python.exe to PATH") e riprova.
+  echo ^(durante l'installazione spunta "Add python.exe to PATH"^) e riprova.
   pause
   exit /b 1
 )
@@ -35,7 +35,7 @@ if errorlevel 1 (
 )
 
 REM Apre il browser dopo 2 secondi, in background, senza bloccare l'avvio del server
-start "" /min cmd /c "timeout /t 2 /nobreak >nul & start "" http://localhost:8000"
+start "" /min cmd /c "timeout /t 2 /nobreak >nul & start "" http://localhost:9753"
 
-echo ==^> Server su http://localhost:8000  (Ctrl+C per fermare)
-.venv\Scripts\uvicorn.exe app:app --host 127.0.0.1 --port 8000
+echo ==^> Server su http://localhost:9753  (Ctrl+C per fermare)
+.venv\Scripts\uvicorn.exe app:app --host 127.0.0.1 --port 9753

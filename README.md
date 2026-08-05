@@ -21,7 +21,7 @@ modello Whisper ma usa la stessa GPU Metal, ed è multilingue con auto-rilevamen
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app:app --host 127.0.0.1 --port 8000
+uvicorn app:app --host 127.0.0.1 --port 9753
 ```
 
 ## Quickstart — Windows
@@ -35,7 +35,7 @@ REM Opzione B — manuale (Python 3.10+ da python.org, con "Add python.exe to PA
 py -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app:app --host 127.0.0.1 --port 8000
+uvicorn app:app --host 127.0.0.1 --port 9753
 ```
 
 `pip install -r requirements.txt` installa automaticamente il backend giusto
@@ -46,7 +46,7 @@ Nessun prerequisito di sistema: la decodifica audio (mp3/ogg/mp4/... -> PCM per 
 avviene via **PyAV**, che include le librerie ffmpeg dentro la wheel pip.
 I modelli Whisper, infatti, non leggono file: accettano solo array numerici PCM 16kHz mono.
 
-Apri **http://localhost:8000** → clicca "⬇ Scarica modello" sulle card che ti interessano
+Apri **http://localhost:9753** → clicca "⬇ Scarica modello" sulle card che ti interessano
 (il download avviene una sola volta, cache in `~/.cache/huggingface` su macOS/Linux,
 `%USERPROFILE%\.cache\huggingface` su Windows) → seleziona uno o più modelli
 → trascina il file → Trascrivi.
@@ -120,7 +120,7 @@ run.sh            # avvio one-command (macOS/Linux)
 run.bat           # avvio one-command (Windows)
 ```
 
-API docs automatiche su **http://localhost:8000/docs**.
+API docs automatiche su **http://localhost:9753/docs**.
 
 ## Sicurezza e privacy
 

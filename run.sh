@@ -23,7 +23,7 @@ echo "==> Controllo dipendenze..."
   exit 1
 }
 
-(sleep 2 && open http://localhost:8000) &
+(sleep 2 && open http://localhost:9753) &
 
-echo "==> Server su http://localhost:8000  (Ctrl+C per fermare)"
-exec .venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000
+echo "==> Server su http://localhost:9753  (Ctrl+C per fermare)"
+exec .venv/bin/uvicorn app:app --host 127.0.0.1 --port 9753
