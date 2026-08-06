@@ -49,7 +49,7 @@ I modelli Whisper, infatti, non leggono file: accettano solo array numerici PCM 
 Apri **http://localhost:9753** → clicca "⬇ Scarica modello" sulle card che ti interessano
 (il download avviene una sola volta, cache in `~/.cache/huggingface` su macOS/Linux,
 `%USERPROFILE%\.cache\huggingface` su Windows) → seleziona uno o più modelli
-→ trascina il file → Trascrivi.
+→ trascina i file (fino a 10 in una volta) → Trascrivi.
 
 ## Modelli (italiano)
 
@@ -101,6 +101,23 @@ Lingua: it · Tempo: 31.0s
 È il formato ideale da dare in pasto a un LLM per confrontare le trascrizioni,
 correggere la terminologia o ricavarne una versione pulita.
 
+## Upload multi-file (batch)
+
+Puoi caricare **fino a 10 file in una volta** (trascina o clicca): tutti i file
+vengono trascritti con gli stessi modelli e la stessa lingua. Ogni file diventa
+un job indipendente con la propria scheda nei risultati: stato a colpo d'occhio
+(⏳ in coda, 🔄 in lavorazione, ✅ completato, ❌ errore) e pulsanti di download
+singoli (.txt, .srt, oppure file unico combinato se hai scelto più modelli).
+I job vengono eseguiti in coda, un file alla volta, per non sovraccaricare CPU/GPU.
+
+## Rilevamento server spento
+
+Se chiudi il terminale con il server, l'interfaccia se ne accorge entro pochi
+secondi e mostra un banner rosso in alto (heartbeat su `/api/health`, più un
+controllo al click di ogni bottone): la logica è nel browser, quindi funziona
+identica su Windows e macOS/Linux. Quando riavvii il server (`run.bat` /
+`run.sh`) il banner sparisce da solo e riprende il monitoraggio dei job in corso.
+
 ## Formati
 
 `ogg · wav · mp3 · mp4 · m4a · webm · flac · aac · opus · mov · mkv` — la conversione
@@ -113,7 +130,7 @@ l'**export combinato** `.multi.txt` (vedi sopra).
 ## Struttura
 
 ```
-app.py            # FastAPI: API REST, upload, job manager (cascata multi-modello), export
+app.py            # FastAPI: API REST, upload singolo/batch (max 10), job manager, export, health
 stt_engine.py     # registry modelli + download HF + backend (mlx-whisper / faster-whisper / parakeet-mlx)
 static/index.html # UI (single-file, zero build)
 run.sh            # avvio one-command (macOS/Linux)
@@ -126,7 +143,8 @@ API docs automatiche su **http://localhost:9753/docs**.
 
 - Il server ascolta solo su **127.0.0.1**: non raggiungibile dalla rete locale.
   **Non** avviarlo con `--host 0.0.0.0`: non c'è autenticazione.
-- Upload limitato a **2 GB** (≈3 ore di audio; variabile `MAX_UPLOAD_MB` per cambiarlo),
+- Upload limitato a **2 GB** per file (≈3 ore di audio; variabile `MAX_UPLOAD_MB` per cambiarlo),
+  batch massimo di 10 file per richiesta (`MAX_BATCH_FILES`),
   scritto su disco in streaming e cancellato subito dopo la trascrizione.
 - Estensioni, lingue e id modello validati lato server; nomi file sanitizzati negli export.
 - In memoria restano al massimo gli ultimi 100 job; gli upload orfani sono eliminati all'avvio.

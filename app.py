@@ -38,6 +38,9 @@ MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "2048")) * 1024 * 1024
 # Quanti job restano in memoria: i più vecchi vengono eliminati (LRU).
 MAX_JOBS = 100
 
+# Numero massimo di file caricabili in un'unica richiesta batch.
+MAX_BATCH_FILES = 10
+
 # Pulizia degli upload rimasti da eventuali crash precedenti.
 for _f in UPLOAD_DIR.iterdir():
     if _f.is_file():
@@ -56,6 +59,12 @@ _download_pool = ThreadPoolExecutor(max_workers=2)
 
 
 # ------------------------------- Modelli -------------------------------
+
+@app.get("/api/health")
+def health():
+    """Endpoint leggerissimo per il heartbeat del frontend (rilevamento motore offline)."""
+    return {"status": "ok"}
+
 
 @app.get("/api/models")
 def list_models():
@@ -140,13 +149,8 @@ def _transcribe_worker(job_id: str, audio_path: Path, model_ids: list[str], lang
         audio_path.unlink(missing_ok=True)  # l'upload non serve più
 
 
-@app.post("/api/transcribe")
-async def transcribe(
-    file: UploadFile = File(...),
-    models: list[str] = Form(...),
-    language: str = Form("it"),
-):
-    # Uno o più modelli, eseguiti in cascata nell'ordine di selezione.
+def _validate_models_and_language(models: list[str], language: str) -> list[str]:
+    """Valida modelli e lingua; ritorna la lista deduplicata dei model_id."""
     model_ids = list(dict.fromkeys(models))  # dedup preservando l'ordine
     if not model_ids:
         raise HTTPException(400, "Seleziona almeno un modello")
@@ -161,11 +165,14 @@ async def transcribe(
             raise HTTPException(400, f"Modello non ancora scaricato: {model_id}")
     if language not in ALLOWED_LANGUAGES:
         raise HTTPException(400, f"Lingua non supportata: {language}")
+    return model_ids
 
+
+async def _save_upload(file: UploadFile) -> tuple[str, Path]:
+    """Salva l'upload su disco in streaming; ritorna (job_id, audio_path)."""
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"Formato non supportato: {ext or '(nessuna estensione)'}")
-
     job_id = uuid.uuid4().hex[:12]
     audio_path = UPLOAD_DIR / f"{job_id}{ext}"
     try:
@@ -183,11 +190,17 @@ async def transcribe(
     except Exception:
         audio_path.unlink(missing_ok=True)
         raise
+    return job_id, audio_path
 
+
+def _register_job(
+    job_id: str, filename: str | None, model_ids: list[str], language: str, audio_path: Path
+):
+    """Registra il job in memoria e lo mette in coda per la trascrizione."""
     with _jobs_lock:
         _jobs[job_id] = {
             "status": "queued",
-            "filename": file.filename,
+            "filename": filename,
             "models": model_ids,
             "language": language,
             "created_at": time.time(),
@@ -199,7 +212,47 @@ async def transcribe(
         while len(_jobs) > MAX_JOBS:
             _jobs.pop(next(iter(_jobs)))  # i dict sono ordinati: elimina il più vecchio
     _transcribe_pool.submit(_transcribe_worker, job_id, audio_path, model_ids, language)
+
+
+@app.post("/api/transcribe")
+async def transcribe(
+    file: UploadFile = File(...),
+    models: list[str] = Form(...),
+    language: str = Form("it"),
+):
+    # Uno o più modelli, eseguiti in cascata nell'ordine di selezione.
+    model_ids = _validate_models_and_language(models, language)
+    job_id, audio_path = await _save_upload(file)
+    _register_job(job_id, file.filename, model_ids, language, audio_path)
     return {"job_id": job_id}
+
+
+@app.post("/api/transcribe-batch")
+async def transcribe_batch(
+    files: list[UploadFile] = File(...),
+    models: list[str] = Form(...),
+    language: str = Form("it"),
+):
+    """Upload multiplo: fino a MAX_BATCH_FILES file, ognuno diventa un job separato."""
+    if not files:
+        raise HTTPException(400, "Nessun file caricato")
+    if len(files) > MAX_BATCH_FILES:
+        raise HTTPException(400, f"Massimo {MAX_BATCH_FILES} file per volta")
+    model_ids = _validate_models_and_language(models, language)
+    # Valida tutte le estensioni prima di salvare qualsiasi file.
+    for file in files:
+        ext = Path(file.filename or "").suffix.lower()
+        if ext not in ALLOWED_EXT:
+            raise HTTPException(
+                400,
+                f"Formato non supportato: {ext or '(nessuna estensione)'} ({file.filename})",
+            )
+    jobs_out = []
+    for file in files:
+        job_id, audio_path = await _save_upload(file)
+        _register_job(job_id, file.filename, model_ids, language, audio_path)
+        jobs_out.append({"job_id": job_id, "filename": file.filename})
+    return {"jobs": jobs_out}
 
 
 @app.get("/api/jobs/{job_id}")
