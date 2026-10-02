@@ -11,6 +11,24 @@ __pycache__/
 # Audio caricati a runtime: mai committare
 uploads/
 
+# File audio/video di test o di lavoro: mai committare
+*.m4a
+*.mp3
+*.wav
+*.ogg
+*.opus
+*.flac
+*.aac
+*.mp4
+*.webm
+*.mov
+*.mkv
+
+# Output e log locali
+outputs/
+logs/
+*.log
+
 # Configurazione locale ed editor
 .env
 .vscode/

@@ -83,7 +83,8 @@ Non è un problema di dimensione del file (un'ora di WhatsApp sono pochi MB):
 **globale** (`rel_pos`, `att_context_size = [-1, -1]`), quindi il buffer di
 attenzione cresce col **quadrato** della durata: circa `10.000 × secondi²` byte
 in `float32`. Il file dell'esempio dura ~45 min → un singolo buffer da ~68 GB,
-oltre il massimo che Metal concede per allocazione (~28 GiB su un Mac da 48 GB).
+oltre il massimo che Metal concede per allocazione (nel nostro test ~28 GiB
+su un Mac con 48 GB di RAM).
 
 L'app lo evita **automaticamente spezzando l'audio in blocchi** (chunking):
 i chunk vengono trascritti separatamente e poi ricuciti sull'overlap, con
@@ -98,7 +99,8 @@ timestamp assoluti (gli `.srt` restano corretti). Così la memoria dipende
 | 45 min | ~68 GB → **errore `metal::malloc`** | ~6,4 GB (chunk 300s, misurato) |
 | 3 ore | ~1.600 GB → errore | ~6,4 GB, **costante** |
 
-Misurazioni reali su un file di 45 min (M5 Pro, 48 GB), stesso testo, chunk diversi:
+Misurazioni reali su un file di 45 min (Mac Apple Silicon con 48 GB di RAM),
+stesso testo, chunk diversi:
 
 | `PARAKEET_CHUNK_SECONDS` | picco memoria GPU | tempo |
 |---|---|---|
