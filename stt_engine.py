@@ -15,6 +15,7 @@ le librerie ffmpeg sono incluse nella wheel pip, niente da installare a livello 
 """
 
 import importlib.util
+import os
 import platform
 import sys
 import threading
@@ -291,6 +292,23 @@ def _transcribe_faster_whisper(audio_path: str, model_id: str, lang: str | None)
 
 # ------------------------------- Parakeet -------------------------------
 
+# Chunking dell'audio per Parakeet. Obbligatorio sugli audio lunghi:
+# l'encoder di Parakeet usa attention a posizione relativa GLOBALE, quindi il
+# buffer di attenzione cresce con il QUADRATO della durata
+# (matrix_bd ~ 10.000 * secondi² byte in float32) e oltre ~15 min supera il
+# limite di buffer della GPU Metal. Con il chunking la memoria dipende dalla
+# dimensione del chunk, non dalla durata del file (misurato su file da 45 min:
+# chunk 120s -> 3,2 GB di picco · 300s -> 6,4 GB · 600s -> 17,5 GB, sempre
+# indipendentemente dalla lunghezza totale dell'audio).
+# I chunk vengono ricuciti da parakeet-mlx sull'overlap, con timestamp assoluti.
+# 0 disabilita il chunking (sconsigliato: rischio errore metal::malloc).
+PK_CHUNK_SECONDS = float(os.environ.get("PARAKEET_CHUNK_SECONDS", "300"))
+PK_OVERLAP_SECONDS = float(os.environ.get("PARAKEET_OVERLAP_SECONDS", "15"))
+# Tetto di sicurezza: con chunk molto grandi la memoria torna a crescere
+# (picco ~ 2,6 GB + 4,1e-5 * chunk²) e si esce dal "territorio sicuro" anche
+# su Mac con molta RAM. Oltre questo valore il chunk viene ridotto.
+PK_CHUNK_MAX_SECONDS = 900.0
+
 # Cache dei modelli Parakeet caricati in RAM (caricamento costoso: una sola volta)
 _pk_models: dict = {}
 _pk_lock = threading.Lock()
@@ -325,10 +343,73 @@ def _get_parakeet_model(model_id: str):
     return model
 
 
+def _parakeet_chunking() -> tuple[float | None, float]:
+    """Ritorna (chunk_duration, overlap) per Parakeet, normalizzando i valori.
+
+    chunk_duration=None (PK_CHUNK_SECONDS <= 0) = nessun chunking: parakeet-mlx
+    elabora l'intero file in un solo passaggio. Va bene solo per audio corti,
+    perché il buffer di attenzione cresce col quadrato della durata.
+    I valori richiesti vengono riportati in un intervallo sicuro:
+    - chunk limitato a PK_CHUNK_MAX_SECONDS (oltre, la memoria GPU risale);
+    - overlap limitato a chunk/2 così il passo di avanzamento resta positivo
+      (altrimenti parakeet-mlx entrerebbe in loop/errore).
+    """
+    if PK_CHUNK_SECONDS <= 0:
+        return None, 0.0
+    chunk = PK_CHUNK_SECONDS
+    if chunk > PK_CHUNK_MAX_SECONDS:
+        print(
+            f"[stt_engine] PARAKEET_CHUNK_SECONDS={chunk:.0f} ridotto a "
+            f"{PK_CHUNK_MAX_SECONDS:.0f}s: con chunk più grandi la memoria GPU "
+            f"cresce col quadrato e si rischia l'errore metal::malloc.",
+            file=sys.stderr,
+        )
+        chunk = PK_CHUNK_MAX_SECONDS
+    overlap = max(0.0, min(PK_OVERLAP_SECONDS, chunk / 2))
+    return chunk, overlap
+
+
+def _friendly_transcribe_error(
+    exc: Exception, chunk_seconds: float | None = None
+) -> Exception:
+    """Traduce gli errori di memoria GPU di Metal in un messaggio comprensibile.
+
+    Il caso tipico è `metal::malloc: Attempting to allocate N bytes which is
+    greater than the maximum allowed buffer size of M bytes`, causato da un
+    audio troppo lungo elaborato in un unico passaggio. Il dettaglio tecnico
+    originale viene mantenuto in coda al messaggio.
+    """
+    msg = str(exc)
+    if "metal::malloc" in msg or "maximum allowed buffer size" in msg:
+        if chunk_seconds:
+            consiglio = (
+                f"il chunking è impostato a {chunk_seconds:.0f}s: riduci "
+                "PARAKEET_CHUNK_SECONDS, es. 120, "
+            )
+        else:
+            consiglio = (
+                "il chunking è disattivato: imposta PARAKEET_CHUNK_SECONDS, es. 120, "
+            )
+        return RuntimeError(
+            "Audio troppo lungo per essere elaborato in un unico passaggio: la GPU "
+            "Metal ha esaurito i buffer disponibili. Il modello Parakeet usa "
+            "attenzione globale, quindi la memoria cresce col quadrato della durata "
+            f"({consiglio}oppure usa un modello Whisper come Large v3 Turbo, che "
+            f"lavora sempre su finestre da 30s). [dettaglio: {msg}]"
+        )
+    return exc
+
+
 def _transcribe_parakeet(audio_path: str, model_id: str) -> dict:
     """Backend Apple Silicon: NVIDIA Parakeet via parakeet-mlx (GPU Metal).
 
     Parakeet v3 è multilingue con auto-rilevamento: la lingua non va specificata.
+
+    L'audio viene elaborato a chunk (default 300s): l'encoder di Parakeet usa
+    attention a posizione relativa globale, il cui buffer di attenzione cresce
+    con il quadrato della durata; senza chunking un file di ~45 min richiede
+    ~68 GB per un singolo buffer e Metal solleva `metal::malloc`.
+    parakeet-mlx ricuce i chunk sull'overlap e produce timestamp assoluti.
 
     dtype=float32 obbligatorio: con il default bfloat16 il calcolo del log-mel di
     parakeet-mlx (mx.view complex->dtype) produce feature dimezzate e va in errore
@@ -337,7 +418,22 @@ def _transcribe_parakeet(audio_path: str, model_id: str) -> dict:
     import mlx.core as mx
 
     model = _get_parakeet_model(model_id)
-    result = model.transcribe(audio_path, dtype=mx.float32)
+    chunk_duration, overlap = _parakeet_chunking()
+    try:
+        result = model.transcribe(
+            audio_path,
+            dtype=mx.float32,
+            chunk_duration=chunk_duration,
+            overlap_duration=overlap,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _friendly_transcribe_error(exc, chunk_duration) from exc
+    finally:
+        # Libera i buffer GPU: nella cascata multi-modello la cache MLX
+        # altrimenti resta occupata e i buffer si sommano tra un modello e l'altro.
+        # mx.clear_cache() è il nome attuale; mx.metal.clear_cache quello storico.
+        clear_cache = getattr(mx, "clear_cache", None) or mx.metal.clear_cache
+        clear_cache()
     sentences = getattr(result, "sentences", None) or []
     segments = [
         {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
